@@ -6,9 +6,23 @@ import (
 )
 
 func main() {
-	theMine := []string{"rock", "ore", "ore", "rock", "ore"}
-	go finder1(theMine)
-	go finder2(theMine)
+	theMine := []string{"ore1", "ore2", "ore3"}
+	oreChan := make(chan string)
+
+	// Finder
+	go func(mine []string) {
+		for _, item := range mine {
+			oreChan <- item
+		}
+	}(theMine)
+
+	// Ore Breaker
+	go func() {
+		for i := 0; i < len(theMine); i++ {
+			foundOre := <-oreChan
+			fmt.Println("Miner Received: " + foundOre + " from finder")
+		}
+	}()
 
 	<-time.After(time.Second * 5)
 }
