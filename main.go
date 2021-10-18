@@ -8,6 +8,7 @@ import (
 func main() {
 	theMine := []string{"ore1", "ore2", "ore3"}
 	oreChan := make(chan string)
+	minedOreChan := make(chan string)
 
 	// Finder
 	go func(mine []string) {
@@ -18,9 +19,17 @@ func main() {
 
 	// Ore Breaker
 	go func() {
-		for i := 0; i < len(theMine); i++ {
-			foundOre := <-oreChan
+		for foundOre := range oreChan {
 			fmt.Println("Miner Received: " + foundOre + " from finder")
+			minedOreChan <- "minedOre"
+		}
+	}()
+
+	// Smelter
+	go func() {
+		for minedOre := range minedOreChan {
+			fmt.Println("From Miner: ", minedOre)
+			fmt.Println("From Smelter: Ore is smelted")
 		}
 	}()
 
