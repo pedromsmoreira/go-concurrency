@@ -3,17 +3,50 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
 	"sync"
 	"time"
 )
 
+var (
+	batchRoutinesCreated = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "batch_routine_created_total",
+		Help: "The total number of batch routine created",
+	})
+	batchDispatched = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "batch_dispatched_total",
+		Help: "The total number of batches dispatched",
+	})
+)
+
 func main() {
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	m := http.NewServeMux()
+	m.Handle("/metrics", promhttp.Handler())
+	srv := http.Server{
+		Addr:    ":8000",
+		Handler: m,
+	}
+
+	go func() {
+		err := srv.ListenAndServe()
+		if err != nil {
+			return
+		}
+	}()
+
 	batchSize := 50
 	tb := New(500*time.Millisecond, batchSize)
-	var wg sync.WaitGroup
 	batches := make([][]interface{}, 0)
 	numberOfMessagesToPublish := 100
-	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for b := range tb.dispatcher {
@@ -27,6 +60,17 @@ func main() {
 		time.Sleep(50 * time.Millisecond)
 	}
 	tb.Close()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+
+	<-stop
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server forced to shutdown: ", err)
+	}
 
 	wg.Wait()
 	fmt.Println("done")
@@ -61,6 +105,7 @@ func New(interval time.Duration, batchSize int) *timedBatchManager {
 	wg.Add(1)
 
 	go func() {
+		batchRoutinesCreated.Inc()
 		defer wg.Done()
 		for {
 			select {
@@ -68,6 +113,7 @@ func New(interval time.Duration, batchSize int) *timedBatchManager {
 				ticker.Stop()
 				if len(batch) != 0 {
 					dispatcher <- batch
+					batchDispatched.Inc()
 				}
 				close(dispatcher)
 				return
@@ -76,6 +122,7 @@ func New(interval time.Duration, batchSize int) *timedBatchManager {
 				fmt.Println(fmt.Sprintf("batch has %d elements", len(batch)))
 				if len(batch) == batchSize {
 					dispatcher <- batch
+					batchDispatched.Inc()
 					fmt.Println("resetting batch...")
 					batch = make([]interface{}, 0, batchSize)
 					break
@@ -83,6 +130,7 @@ func New(interval time.Duration, batchSize int) *timedBatchManager {
 			case <-ticker.C:
 				if len(batch) != 0 {
 					dispatcher <- batch
+					batchDispatched.Inc()
 					fmt.Println(fmt.Sprintf("Sent batch with %d", len(batch)))
 					batch = make([]interface{}, 0, batchSize)
 				}
