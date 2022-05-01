@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -32,9 +33,10 @@ var (
 func main() {
 
 	var wg sync.WaitGroup
-	wg.Add(1)
 	m := http.NewServeMux()
 	m.Handle("/metrics", promhttp.Handler())
+	// url -> /batches?size=500&quantity=10000
+	m.HandleFunc("/batches", batchHandler)
 	srv := http.Server{
 		Addr:    ":8000",
 		Handler: m,
@@ -47,24 +49,6 @@ func main() {
 			return
 		}
 	}()
-
-	batchSize := 50
-	tb := New(500*time.Millisecond, batchSize)
-	batches := make([][]interface{}, 0)
-	numberOfMessagesToPublish := 100
-	go func() {
-		defer wg.Done()
-		for b := range tb.dispatcher {
-			fmt.Println(fmt.Sprintf("received batch with size %d", len(b)))
-			batches = append(batches, b)
-		}
-	}()
-
-	for i := 0; i < numberOfMessagesToPublish; i++ {
-		tb.Publish(i)
-		time.Sleep(50 * time.Millisecond)
-	}
-	tb.Close()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
@@ -79,6 +63,30 @@ func main() {
 
 	wg.Wait()
 	fmt.Println("done")
+}
+
+func batchHandler(w http.ResponseWriter, r *http.Request) {
+	batchSize, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	numberOfMessagesToPublish, _ := strconv.Atoi(r.URL.Query().Get("quantity"))
+	tb := New(500*time.Millisecond, batchSize)
+	batches := make([][]interface{}, 0)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for b := range tb.dispatcher {
+			fmt.Println(fmt.Sprintf("received batch with size %d", len(b)))
+			batches = append(batches, b)
+		}
+	}()
+
+	for i := 0; i < numberOfMessagesToPublish; i++ {
+		tb.Publish(i)
+	}
+	tb.Close()
+
+	wg.Wait()
+	w.Write([]byte("done"))
 }
 
 type timedBatchManager struct {
