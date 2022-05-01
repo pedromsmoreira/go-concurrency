@@ -19,6 +19,10 @@ var (
 		Name: "batch_routine_created_total",
 		Help: "The total number of batch routine created",
 	})
+	batchRoutinesActive = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "batch_routines_active",
+		Help: "The number of batch go routine active",
+	})
 	batchDispatched = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "batch_dispatched_total",
 		Help: "The total number of batches dispatched",
@@ -28,7 +32,7 @@ var (
 func main() {
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(1)
 	m := http.NewServeMux()
 	m.Handle("/metrics", promhttp.Handler())
 	srv := http.Server{
@@ -37,6 +41,7 @@ func main() {
 	}
 
 	go func() {
+		wg.Add(1)
 		err := srv.ListenAndServe()
 		if err != nil {
 			return
@@ -106,7 +111,9 @@ func New(interval time.Duration, batchSize int) *timedBatchManager {
 
 	go func() {
 		batchRoutinesCreated.Inc()
+		batchRoutinesActive.Inc()
 		defer wg.Done()
+		defer batchRoutinesActive.Dec()
 		for {
 			select {
 			case <-ctx.Done():
