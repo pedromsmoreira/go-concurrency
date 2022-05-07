@@ -1,14 +1,16 @@
 version: '3.1'
 
 services:
-  golang:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: golang
-    restart: always
-    ports:
-      - '8000:8000'
+  #golang:
+  #  build:
+  #    context: .
+  #    dockerfile: Dockerfile
+  #  container_name: golang
+  #  restart: always
+  #  ports:
+  #    - '8000:8000'
+  #  environment:
+  #    - 'NATS_URL=nats:4222'
 
   grafana:
     image: grafana/grafana:latest
@@ -21,7 +23,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.24.0
     volumes:
-      - ./timebatching/prometheus/:/etc/prometheus/
+      - ./prometheus/:/etc/prometheus/
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -31,6 +33,14 @@ services:
     ports:
       - '9090:9090'
     restart: always
+
+  nats:
+    image: nats:2.7.4-alpine
+    command: "-js"
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "6222:6222"
 
 volumes:
   grafana-storage:
